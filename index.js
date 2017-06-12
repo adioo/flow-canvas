@@ -1,113 +1,62 @@
 'use strict';
 
 // Dependencies
-const Events = require('events');
 const Button = require('./lib/button');
 
-function Canvas (vis, config) {
-    let self = new Events();
-    self.network = vis.network;
-    self.config = config
+module.exports = (network, config) => {
+    let self = {};
+    self.network = network;
+    self.config = config;
+    self.config.colors = self.config.colors || {}
 
-    // methods
-    self.toggle = toggle;
+    if (!config.contexts) {
+        return;
+    }
+    self.contexts = config.contexts;
+    self.menu = null;
 
-    let canvas = self.network.canvas.frame.canvas;
-    let buttonsConfig = self.config.buttons;
-
-    // draw buttons
+    // get canvas context
     self.network.on('afterDrawing', (ctx) => {
 
-        if (!self.contextMenu || !self.config.nodes.types[self.contextMenu.type]) {
-            return;
-        }
+        if (self.menu) {
+            if (self.menu.context.type === 'point') {
+                ctx.beginPath();
+                ctx.arc(self.menu.center.x, self.menu.center.y, 2, 0 , 2 * Math.PI);
+                ctx.fillStyle = '#000000';
+                ctx.fill();
+            }
 
-        if (!self.config.nodes.types[self.contextMenu.type].buttons) {
-            return;
-        }
-
-        // get node
-        const node = self.contextMenu;
-        const nodeId = node.id;
-
-        // compute the button positions
-        let boundingBox = self.network.getBoundingBox([nodeId]);
-        if (!boundingBox) {
-            return;
-        }
-        let menuY = boundingBox.bottom + 10;
-        let menuX = self.network.getPositions([nodeId])[nodeId].x;
-        let buttonsWidth = 0;
-
-        // create the necessary buttons and place them
-        if (!self.buttons) {
-
-            let buttonsToAdd = [];
-            let posibleButtons = self.config.nodes.types[node.type].buttons;
-            posibleButtons.forEach(item => {
-                if (!item.type) {
-                    return;
-                }
-
-                let buttonConfig = buttonsConfig[item.type];
-
-                if (!buttonConfig) {
-                    return;
-                }
-
-                let button = new Button(ctx, item.label, {
-                    color: self.config.colors[buttonConfig.color]
-                });
-
-                // append graph info to the button
-                button.node = node;
-                button.emit = buttonConfig.emit;
-                button.type = node.type;
-
-                // append generic button data
-                if (item.data) {
-                    button.data = item.data;
-                }
-
-                buttonsWidth += buttonsWidth === 0 ? button.width : button.width + 10;
-                buttonsToAdd.push(button);
-            });
-
-            self.buttons = buttonsToAdd;
-        } else {
-            self.buttons.forEach(button => {
-                buttonsWidth += buttonsWidth === 0 ? button.width : button.width + 10;
+            self.menu.buttons.forEach(btn => {
+                btn.draw(ctx);
             });
         }
-
-        // start placing the buttons
-        let currentX = menuX - buttonsWidth / 2;
-        self.buttons.forEach(button => {
-            button.draw(currentX, menuY);
-            currentX += button.width + 10;
-        });
-
         ctx.save();
     });
 
     // button mouseover and mouseaway selfs
+    let canvas = self.network.canvas.frame.canvas;
     let canvasOffset = canvas.getBoundingClientRect();
     canvas.addEventListener('mousemove', event => {
 
-        if (!self.buttons) {
+        if (!self.menu) {
             return;
         }
 
         let mouse = self.network.DOMtoCanvas({
-            x: event.clientX - canvasOffset.left,
-            y: event.clientY - canvasOffset.top
+            x: event.offsetX - canvasOffset.left,
+            y: event.offsetY - canvasOffset.top
         });
 
-        self.buttons.forEach(button => {
-            if (mouse.x >= button.x && mouse.x <= button.x + button.width && mouse.y >= button.y && mouse.y <= button.y + button.height) {
-                button.mouseOver();
+        self.menu.buttons.forEach(button => {
+            let distance = Math.sqrt((mouse.x - button.x)*(mouse.x - button.x) + (mouse.y - button.y)*(mouse.y - button.y));
+            if (distance < button.radius) {
+                if (!button.isHover) {
+                    button.hover();
+                }
             } else {
-                button.mouseAway();
+                if (button.isHover) {
+                    button.blur();
+                }
             }
         });
     }, false);
@@ -115,73 +64,99 @@ function Canvas (vis, config) {
     // listen for click events on the buttons
     self.network.on('click', event => {
 
-        if (!self.buttons) {
+        if (!self.menu) {
             return;
         }
 
-        let chunk;
         let mouse = {
             x: event.pointer.canvas.x,
             y: event.pointer.canvas.y
         };
 
-        self.buttons.forEach(button => {
-            if (mouse.x >= button.x && mouse.x <= button.x + button.width && mouse.y >= button.y && mouse.y <= button.y + button.height) {
-                button.mouseDown();
-                chunk = {node: button.node, type: button.type};
-                if (button.data) {
-                    chunk.data =button.data;
-                }
-
-                console.log('click', chunk);
+        self.menu.buttons.forEach(button => {
+            let distance = Math.sqrt((mouse.x - button.x)*(mouse.x - button.x) + (mouse.y - button.y)*(mouse.y - button.y));
+            if (distance < button.radius) {
+                console.log('click', button);
             }
         });
     });
 
+    // export methods
+    self.toggle = (data, args) => {
+        args = args || {};
+
+        if (!args.context || !self.contexts[args.context] || !data.event) {
+            return;
+        }
+
+        let context = self.contexts[args.context];
+        if (!context.buttons || !context.buttons.length) {
+            return;
+        }
+
+        // for point context only
+        if (context.type === 'point' && self.menu && self.menu.context.type === 'point') {
+            self.menu = null;
+            self.network.redraw();
+            return;
+        }
+
+        // TODO CONFIGURE
+        // const circle constants
+        const minRadius = 90;
+        const buttonRadius = 20;
+        const buttonDistance = 15;
+
+        let center;
+        if (context.type === 'point') {
+            center = {
+                x: data.event.pointer.canvas.x,
+                y: data.event.pointer.canvas.y
+            };
+        } else if (context.type === 'node') {
+            let pos = self.network.getPositions(data.event.nodes[0]);
+            center = pos[data.event.nodes[0]];
+        }
+
+        // init menu
+        let menu = {
+            context: context,
+            center: center,
+            buttons: []
+        };
+
+        /* COMPUTE BUTTON POSITIONS */
+
+        // step 1. Compute the radius of the button circle
+        let potentialCircumference = context.buttons.length * (2 * buttonRadius + buttonDistance);
+        let potentialRadius = potentialCircumference / (Math.PI * 2);
+
+        let radius = (minRadius > potentialRadius) ? minRadius : potentialRadius;
+
+        // step 2. Compute the angle that contains a single button
+        let a = buttonRadius + buttonDistance / 2;
+        let b = radius;
+        let c = radius;
+        let cosA = (b*b + c*c - a*a) / (2*b*c);
+        let angle = Math.acos(cosA) * 2;
+
+        // step 3. compute positions of buttons
+        let cAngle = -1.5;
+        context.buttons.forEach(btn => {
+            let x = radius * Math.cos(cAngle) + menu.center.x;
+            let y = radius * Math.sin(cAngle) + menu.center.y;
+
+            menu.buttons.push(new Button(x, y, buttonRadius, {
+                color: (btn.color && self.config.colors[btn.color]) ? self.config.colors[btn.color] : {},
+                icon: btn.icon
+            }));
+
+            cAngle += angle;
+        });
+
+        self.menu = menu;
+        self.network.redraw();
+    };
+
     return self;
-};
-
-function toggle (node) {
-
-    if (!node || !this.config.nodes.types[node.type]) {
-        return;
-    }
-
-    // hide context menu
-    if (
-        (!this.config.nodes.types[node.type].buttons || !this.config.nodes.types[node.type].buttons.length) ||
-        (this.contextMenu && node.id === this.contextMenu.id)
-    ) {
-        this.contextMenu = undefined;
-        self.buttons = undefined;
-
-    // show context menu
-    } else {
-        this.contextMenu = node;
-    }
 }
-
-exports.init = (scope, state, args, data, next) => {
-
-    if (state.VIS && state.VIS.visualization) {
-        state.canvas = Canvas(state.VIS.visualization, state.VIS.options.config);
-    }
-
-    return next(null, data);
-};
-
-exports.context = function (scope, state, args, data, next) {
-
-    if (!data.node) {
-        //return next(new Error('Flow-visualizer.context: No node provided.'));
-        return next(null, data);
-    }
-
-    if (!state.canvas) {
-        return next(null, data);
-    }
-
-    state.canvas.toggle(data.node);
-
-    next(null, data);
-};
