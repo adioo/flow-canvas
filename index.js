@@ -39,7 +39,11 @@ function toggle (data, args) {
     } else {
         let newMenu = createMenu(data.event, context);
 
-        if (this.menu.type !== newMenu.type || (newMenu.type === 'node' && this.menu.node !== newMenu.node)) {
+        if (this.menu.type !== newMenu.type) {
+            this.menu = newMenu;
+        } else if (this.menu.type === newMenu.type && (newMenu.type === 'node' && this.menu.node !== newMenu.node)) {
+            this.menu = newMenu;
+        } else if (this.menu.type === newMenu.type && (newMenu.type === 'edge' && this.menu.edge !== newMenu.edge)) {
             this.menu = newMenu;
         } else {
             this.menu = null;
@@ -60,6 +64,8 @@ function createMenu (event, context) {
 
     if (context.type === 'node') {
         menu.node = event.nodes[0];
+    } else if (context.type === 'edge') {
+        menu.edge = event.edges[0];
     } else {
         menu.center = event.pointer.canvas;
     }
