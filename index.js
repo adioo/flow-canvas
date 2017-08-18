@@ -17,15 +17,16 @@ module.exports = (network, config) => {
 
     // init modules
     Render.call(self);
-    Events.call(self);
 
     // export methods
-    self.toggle = toggle;
+    self.open = open;
+    self.close = close;
+    self.events = Events;
 
     return self;
 };
 
-function toggle (data, args) {
+function open (data, args) {
     args = args || [];
 
     if (!args.context || !this.contexts[args.context]) {
@@ -36,22 +37,22 @@ function toggle (data, args) {
 
     if (!this.menu) {
         this.menu = createMenu(data.event, context);
+
+        // force canvas redraw
+        this.network.redraw();
     } else {
-        let newMenu = createMenu(data.event, context);
-
-        if (this.menu.type !== newMenu.type) {
-            this.menu = newMenu;
-        } else if (this.menu.type === newMenu.type && (newMenu.type === 'node' && this.menu.node !== newMenu.node)) {
-            this.menu = newMenu;
-        } else if (this.menu.type === newMenu.type && (newMenu.type === 'edge' && this.menu.edge !== newMenu.edge)) {
-            this.menu = newMenu;
-        } else {
-            this.menu = null;
-        }
+        return;
     }
+}
 
-    // force canvas redraw
-    this.network.redraw();
+function close () {
+
+    if (this.menu) {
+        this.menu = null;
+
+        // force canvas redraw
+        this.network.redraw();
+    }
 }
 
 /* private functions */
