@@ -26,17 +26,16 @@ module.exports = (network, config) => {
     return self;
 };
 
-function open (data, args) {
-    args = args || [];
+function open (event, context) {
 
-    if (!args.context || !this.contexts[args.context]) {
+    if (!context || !this.contexts[context]) {
         return;
     }
 
-    let context = this.contexts[args.context];
+    context = this.contexts[context];
 
     if (!this.menu) {
-        this.menu = createMenu(data.event, context);
+        this.menu = createMenu(event, context);
 
         // force canvas redraw
         this.network.redraw();
